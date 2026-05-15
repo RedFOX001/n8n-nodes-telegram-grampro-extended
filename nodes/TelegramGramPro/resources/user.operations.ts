@@ -76,6 +76,9 @@ export async function userRouter(
 		case 'getProfilePhoto':
 			return getProfilePhoto.call(this, client, i);
 
+		case 'updateStatus':
+			return updateStatus.call(this, client, i);
+
 		default:
 			throw new Error(`User operation not supported: ${operation}`);
 	}
@@ -387,6 +390,44 @@ export async function getProfilePhoto(
 					error: error instanceof Error ? error.message : String(error),
 					message: 'Failed to get profile photo',
 				} as IDataObject,
+				pairedItem: { item: i },
+			},
+		];
+	}
+}
+
+export async function updateStatus(
+	this: IExecuteFunctions,
+	client: TelegramClientInstance,
+	i: number,
+): Promise<INodeExecutionData[]> {
+	const offline = Boolean(this.getNodeParameter('offline', i));
+
+	try {
+		await client.invoke(
+			new Api.account.UpdateStatus({
+				offline: offline,
+			}),
+		);
+
+		return [
+			{
+				json: {
+					success: true,
+					offline,
+					message: `Status changes to ${offline ? 'Offline' : 'Online'}`,
+				},
+				pairedItem: { item: i },
+			},
+		];
+	} catch (error) {
+		return [
+			{
+				json: {
+					success: false,
+					error: error instanceof Error ? error.message : String(error),
+					message: `Status Did not change to ${offline ? 'Offline' : 'Online'}`,
+				},
 				pairedItem: { item: i },
 			},
 		];

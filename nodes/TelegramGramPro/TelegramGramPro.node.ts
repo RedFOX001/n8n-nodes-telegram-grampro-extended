@@ -241,6 +241,12 @@ export class TelegramGramPro implements INodeType {
 						value: 'updateUsername',
 						action: 'Update my username',
 					},
+					{
+						name: 'Update My Status',
+						value: 'updateStatus',
+						action: 'Update my status',
+						description: 'Show your status online or offline',
+					},
 				],
 				default: 'getFullUser',
 			},
@@ -1513,6 +1519,19 @@ export class TelegramGramPro implements INodeType {
 					},
 				},
 				description: 'Whether the admin can delete stories (channels only)',
+			},
+			{
+				displayName: 'Offline',
+				name: 'offline',
+				type: 'boolean',
+				default: true,
+				displayOptions: {
+					show: {
+						resource: ['user'],
+						operation: ['updateStatus'],
+					},
+				},
+				description: 'Whether show your online status offline or online',
 			},
 			{
 				displayName: 'First Name',
