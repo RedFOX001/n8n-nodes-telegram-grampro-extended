@@ -1,10 +1,17 @@
 import { IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
-import { getClient } from '../core/clientManager';
+import { getClient, markClientActive, markClientIdle, ensureConnected } from '../core/clientManager';
 import { safeExecute } from '../core/floodWaitHandler';
 import { withRateLimit } from '../core/rateLimiter';
 import { Api } from 'teleproto';
 import bigInt from 'big-integer';
 import { CustomFile } from 'teleproto/client/uploads';
+import { randomBytes } from 'crypto';
+import { createWriteStream } from 'fs';
+import { mkdir, stat, unlink } from 'fs/promises';
+import { tmpdir } from 'os';
+import path from 'path';
+import { Readable, Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 
 import { logger } from '../core/logger';
 import { prepareTelegramTextInput, renderTelegramEntities } from '../core/messageFormatting';
@@ -153,6 +160,15 @@ type ReaderLike = {
 type ReadableStreamLike = {
 	getReader: () => ReaderLike;
 };
+
+type DownloadedUrlFile = {
+	file: CustomFile;
+	filePath: string;
+	fileName: string;
+	mimeType?: string;
+};
+
+const URL_MEDIA_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
 
 function toIdString(value: Stringable | undefined): string | undefined {
 	if (value === undefined) {
@@ -516,7 +532,7 @@ export async function messageRouter(
 
 	switch (operation) {
 		case 'sendText':
-			return sendText.call(this, client, i);
+			return sendText.call(this, client, i, creds);
 		case 'forwardMessage':
 			return forwardMessage.call(this, client, i);
 		case 'getHistory':
@@ -1192,6 +1208,7 @@ async function sendText(
 	this: IExecuteFunctions,
 	client: TelegramClientInstance,
 	i: number,
+	creds?: TelegramCredentials,
 ): Promise<INodeExecutionData[]> {
 	const sendToSelf = this.getNodeParameter('sendToSelf', i, false) as boolean;
 	const chatId = sendToSelf ? 'me' : (this.getNodeParameter('chatId', i) as string);
@@ -1203,70 +1220,94 @@ async function sendText(
 	const formattedInput = prepareTelegramTextInput(text);
 
 	let fileToSend: CustomFile | undefined;
+	let downloadedUrlFile: DownloadedUrlFile | undefined;
 	let hasMedia = false;
 	let mediaType: string = 'other';
 	const selectedType = this.getNodeParameter('mediaType', i, 'document') as string;
 
-	if (!webPreview && attachMedia && selectedType !== 'text') {
-		const binaryProperty = this.getNodeParameter('mediaBinaryProperty', i, 'data') as string;
-		const items = this.getInputData();
-		const item = items[i];
-
-		const binaryData = item?.binary?.[binaryProperty];
-
-		if (binaryData) {
-			const buffer = await this.helpers.getBinaryDataBuffer(i, binaryProperty);
-			const fileName = binaryData.fileName || `upload_${Date.now()}`;
-			fileToSend = new CustomFile(fileName, buffer.length, '', buffer);
-			hasMedia = true;
-			mediaType = selectedType || inferMediaTypeFromMime(binaryData.mimeType);
-		} else if (mediaUrl && mediaUrl.trim() !== '') {
-			// Download the URL and send as uploaded file to avoid WEBPAGE_MEDIA_EMPTY
-			const { buffer, mimeType, fileName } = await downloadUrlToBuffer(mediaUrl);
-			const safeName = fileName || `upload_${Date.now()}`;
-			fileToSend = new CustomFile(safeName, buffer.length, '', buffer);
-			hasMedia = true;
-			mediaType =
-				selectedType || inferMediaTypeFromMime(mimeType) || inferMediaTypeFromMimeFromUrl(mediaUrl);
-		} else {
-			throw new Error(
-				`Binary property '${binaryProperty}' is missing or empty on item ${i} and no Media URL provided`,
-			);
-		}
+	// Mark client as busy so the idle-cleanup does not disconnect it during a
+	// potentially long download from the media URL.
+	if (creds) {
+		markClientActive(creds.apiId, creds.session);
 	}
 
-	const result = await withRateLimit(async () =>
-		safeExecute(() =>
-			sendMessageLoose(client, chatId, {
-				message: formattedInput.text,
-				replyTo: replyTo > 0 ? replyTo : undefined,
-				linkPreview: webPreview,
-				file: fileToSend,
-				parseMode: formattedInput.parseMode,
-			}),
-		),
-	);
+	try {
+		if (!webPreview && attachMedia && selectedType !== 'text') {
+			const binaryProperty = this.getNodeParameter('mediaBinaryProperty', i, 'data') as string;
+			const items = this.getInputData();
+			const item = items[i];
 
-	const msg = result;
-	const resolvedMediaType = hasMedia ? mediaType : getMessageType(msg);
-	const chatIdStr = chatId?.toString?.() ?? '';
-	const textStr = text ?? '';
-	return await formatSendResult.call(
-		this,
-		client,
-		msg,
-		chatIdStr,
-		textStr,
-		hasMedia,
-		resolvedMediaType,
-		replyTo,
-		i,
-		!!fileToSend ||
-			(msg.media &&
-				(msg.media.className === 'MessageMediaWebPage' || msg.media._ === 'messageMediaWebPage'))
-			? true
-			: undefined,
-	);
+			const binaryData = item?.binary?.[binaryProperty];
+
+			if (binaryData) {
+				const buffer = await this.helpers.getBinaryDataBuffer(i, binaryProperty);
+				const fileName = binaryData.fileName || `upload_${Date.now()}`;
+				fileToSend = new CustomFile(fileName, buffer.length, '', buffer);
+				hasMedia = true;
+				mediaType = selectedType || inferMediaTypeFromMime(binaryData.mimeType);
+			} else if (mediaUrl && mediaUrl.trim() !== '') {
+				downloadedUrlFile = await downloadUrlToCustomFile(mediaUrl);
+				fileToSend = downloadedUrlFile.file;
+				hasMedia = true;
+				mediaType =
+					selectedType ||
+					inferMediaTypeFromMime(downloadedUrlFile.mimeType) ||
+					inferMediaTypeFromMimeFromUrl(mediaUrl);
+			} else {
+				throw new Error(
+					`Binary property '${binaryProperty}' is missing or empty on item ${i} and no Media URL provided`,
+				);
+			}
+		}
+
+		// If a large download happened, the client may have been disconnected.
+		// Ensure we have a live connection before making the Telegram API call.
+		let activeClient = client;
+		if (creds && downloadedUrlFile) {
+			activeClient = await ensureConnected(creds.apiId, creds.apiHash, creds.session) as unknown as TelegramClientInstance;
+		}
+
+		const result = await withRateLimit(async () =>
+			safeExecute(() =>
+				sendMessageLoose(activeClient, chatId, {
+					message: formattedInput.text,
+					replyTo: replyTo > 0 ? replyTo : undefined,
+					linkPreview: webPreview,
+					file: fileToSend,
+					parseMode: formattedInput.parseMode,
+					supportStreaming: mediaType === 'video' ? true : undefined,
+				}),
+			),
+		);
+
+		const msg = result;
+		const resolvedMediaType = hasMedia ? mediaType : getMessageType(msg);
+		const chatIdStr = chatId?.toString?.() ?? '';
+		const textStr = text ?? '';
+		return await formatSendResult.call(
+			this,
+			activeClient,
+			msg,
+			chatIdStr,
+			textStr,
+			hasMedia,
+			resolvedMediaType,
+			replyTo,
+			i,
+			!!fileToSend ||
+				(msg.media &&
+					(msg.media.className === 'MessageMediaWebPage' || msg.media._ === 'messageMediaWebPage'))
+				? true
+				: undefined,
+		);
+	} finally {
+		if (creds) {
+			markClientIdle(creds.apiId, creds.session);
+		}
+		if (downloadedUrlFile) {
+			await cleanupDownloadedUrlFile(downloadedUrlFile);
+		}
+	}
 }
 
 async function formatSendResult(
@@ -1355,29 +1396,225 @@ function inferMediaTypeFromMimeFromUrl(url: string): string {
 	return 'document';
 }
 
-async function downloadUrlToBuffer(
+async function downloadUrlToCustomFile(url: string): Promise<DownloadedUrlFile> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), URL_MEDIA_DOWNLOAD_TIMEOUT_MS);
+	let filePath: string | undefined;
+
+	try {
+		const res = await fetch(url, {
+			signal: controller.signal,
+			// Prevent Node.js from applying a high-water mark that could clip small responses
+			keepalive: false,
+		});
+		if (!res.ok) {
+			throw createNodeOperationError(
+				`Failed to download media from URL: ${res.status} ${res.statusText}`,
+			);
+		}
+
+		if (!res.body) {
+			throw createNodeOperationError(
+				'Failed to download media from URL: response body is empty',
+			);
+		}
+
+		const mimeType = res.headers.get('content-type') || undefined;
+		const fileName = getSafeDownloadFileName(url, res.headers.get('content-disposition'), mimeType);
+		const downloadDirectory = path.join(tmpdir(), 'n8n-telegram-grampro-upload');
+		await mkdir(downloadDirectory, { recursive: true });
+
+		filePath = path.join(
+			downloadDirectory,
+			`${Date.now()}-${randomBytes(6).toString('hex')}-${fileName}`,
+		);
+
+		const downloadedBytes = await streamResponseBodyToFile(res.body, filePath);
+		const expectedBytes = getContentLength(res.headers.get('content-length'));
+		if (expectedBytes !== undefined && downloadedBytes !== expectedBytes) {
+			throw createNodeOperationError(
+				`Failed to download complete media from URL: expected ${expectedBytes} bytes, received ${downloadedBytes} bytes`,
+			);
+		}
+
+		const fileStats = await stat(filePath);
+		return {
+			file: new CustomFile(fileName, fileStats.size, filePath),
+			filePath,
+			fileName,
+			mimeType,
+		};
+	} catch (error) {
+		if (filePath) {
+			await deleteTemporaryFile(filePath);
+		}
+
+		if (error instanceof Error && error.name === 'AbortError') {
+			throw createNodeOperationError(
+				`Timed out downloading media from URL after ${Math.round(
+					URL_MEDIA_DOWNLOAD_TIMEOUT_MS / 60000,
+				)} minutes`,
+				{ cause: error },
+			);
+		}
+
+		throw asNodeOperationError(error);
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+/**
+ * Streams a fetch() Response.body (Web ReadableStream) to a file on disk using
+ * Node.js native stream pipeline. This is far more robust than manually reading
+ * with getReader() because pipeline handles backpressure, error propagation,
+ * and automatic cleanup of all streams involved.
+ */
+async function streamResponseBodyToFile(
+	webStream: ReadableStream<Uint8Array>,
+	filePath: string,
+): Promise<number> {
+	// Convert the Web ReadableStream from fetch() into a Node.js Readable stream.
+	// Readable.fromWeb() is available in Node.js 17+ and is the canonical way to bridge
+	// the two stream APIs without manual chunk-by-chunk reading.
+	let nodeReadable: Readable;
+	try {
+		nodeReadable = Readable.fromWeb(webStream as import('stream/web').ReadableStream<Uint8Array>);
+	} catch {
+		// Fallback for environments where fromWeb is not available — consume into buffer
+		const chunks: Buffer[] = [];
+		const reader = (webStream as unknown as ReadableStreamLike).getReader();
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			chunks.push(Buffer.from(value));
+		}
+		const fullBuffer = Buffer.concat(chunks);
+		const { writeFile } = await import('fs/promises');
+		await writeFile(filePath, fullBuffer, { flag: 'wx' });
+		return fullBuffer.length;
+	}
+
+	// Create a Transform stream that counts bytes passing through
+	let bytesWritten = 0;
+	const counter = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			bytesWritten += chunk.length;
+			callback(null, chunk);
+		},
+	});
+
+	const fileWriter = createWriteStream(filePath, { flags: 'wx' });
+
+	try {
+		// pipeline() connects the streams, handles backpressure, and ensures
+		// all streams are properly destroyed on error or completion.
+		await pipeline(nodeReadable, counter, fileWriter);
+		return bytesWritten;
+	} catch (error) {
+		throw createNodeOperationError(
+			`Failed to write downloaded media to temporary file: ${getUnknownErrorMessage(error)}`,
+			{ cause: error },
+		);
+	}
+}
+
+function getContentLength(value: string | null): number | undefined {
+	if (!value) {
+		return undefined;
+	}
+
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function getUnknownErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function getSafeDownloadFileName(
 	url: string,
-): Promise<{ buffer: Buffer; mimeType?: string; fileName?: string }> {
-	const res = await fetch(url);
-	if (!res.ok)
-		throw new Error(`Failed to download media from URL: ${res.status} ${res.statusText}`);
-	const arrayBuf = await res.arrayBuffer();
-	const buffer = Buffer.from(arrayBuf);
-	const mimeType = res.headers.get('content-type') || undefined;
-	const disposition = res.headers.get('content-disposition');
-	let fileName: string | undefined;
-	if (disposition && disposition.includes('filename=')) {
-		const match = disposition.match(/filename="?([^";]+)"?/i);
-		if (match && match[1]) fileName = match[1];
-	} else {
+	contentDisposition: string | null,
+	mimeType?: string,
+): string {
+	const fromDisposition = getFileNameFromContentDisposition(contentDisposition);
+	const fromUrl = getFileNameFromUrl(url);
+	const fallback = `upload_${Date.now()}${getExtensionFromMimeType(mimeType)}`;
+	const candidate = fromDisposition || fromUrl || fallback;
+	const safeName = sanitizeFileName(path.basename(candidate));
+
+	return (safeName || fallback).slice(0, 180);
+}
+
+function sanitizeFileName(fileName: string): string {
+	return Array.from(fileName)
+		.map((char) => {
+			const charCode = char.charCodeAt(0);
+			return charCode < 32 || '<>:"/\\|?*'.includes(char) ? '_' : char;
+		})
+		.join('')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function getFileNameFromContentDisposition(contentDisposition: string | null): string | undefined {
+	if (!contentDisposition) {
+		return undefined;
+	}
+
+	const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+	if (encodedMatch?.[1]) {
 		try {
-			const u = new URL(url);
-			fileName = u.pathname.split('/').filter(Boolean).pop();
+			return decodeURIComponent(encodedMatch[1].trim());
 		} catch {
-			/* intentionally ignoring */
+			return encodedMatch[1].trim();
 		}
 	}
-	return { buffer, mimeType, fileName };
+
+	const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+	return match?.[1]?.trim();
+}
+
+function getFileNameFromUrl(url: string): string | undefined {
+	try {
+		const parsedUrl = new URL(url);
+		const lastPathSegment = parsedUrl.pathname.split('/').filter(Boolean).pop();
+		return lastPathSegment ? decodeURIComponent(lastPathSegment) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function getExtensionFromMimeType(mimeType?: string): string {
+	if (!mimeType) {
+		return '';
+	}
+
+	const normalized = mimeType.split(';')[0].trim().toLowerCase();
+	const extensionByMimeType: Record<string, string> = {
+		'image/jpeg': '.jpg',
+		'image/png': '.png',
+		'image/gif': '.gif',
+		'image/webp': '.webp',
+		'video/mp4': '.mp4',
+		'video/quicktime': '.mov',
+		'video/webm': '.webm',
+	};
+
+	return extensionByMimeType[normalized] || '';
+}
+
+async function cleanupDownloadedUrlFile(downloadedUrlFile: DownloadedUrlFile): Promise<void> {
+	await deleteTemporaryFile(downloadedUrlFile.filePath);
+}
+
+async function deleteTemporaryFile(filePath: string): Promise<void> {
+	try {
+		await unlink(filePath);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		logger.warn(`Failed to remove temporary media file ${filePath}: ${message}`);
+	}
 }
 
 function extractMediaInfo(media: TelegramMediaView | undefined): {

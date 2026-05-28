@@ -1,3 +1,19 @@
+## GramPro v6.0.4 [Date: 28-MAY-2026] 🚀
+
+Patch release focused on robust large file downloads, preventing idle client disconnects during active operations, and enhancing download reliability.
+
+### Patches & Bug Fixes 🐛
+- **Prevented Idle Client Disconnects**: Introduced active operation tracking (`activeOperations`) in the client manager to ensure the idle connection cleanup routine does not auto-disconnect clients while long-running operations (such as large media downloads) are in progress.
+- **Auto Reconnection Validation**: Added transparent connection status validation (`ensureConnected`) before sending messages, automatically reconnecting the MTProto client if it gets disconnected during long-running background tasks.
+- **Memory-Efficient Media Downloads**: Replaced in-memory URL download buffers with disk-buffered streaming (`downloadUrlToCustomFile`), avoiding Node.js out-of-memory crashes when sending large files via URLs.
+- **Robust Stream Pipeline Integration**: Utilized native Node.js stream `pipeline` for file downloads, ensuring complete transfer validation against `Content-Length` headers, proper backpressure handling, and graceful error/aborted download cleanup.
+
+### Improvements 🛠️
+- **Safe Filename & Extension Sanitization**: Developed a robust filename parser that extracts, sanitizes, and falls back gracefully for names from `Content-Disposition` headers, MIME types, or URLs, filtering out illegal operating system characters.
+- **Clean Temporary Files Cleanup**: Added strict `try-finally` cleanup for all downloaded temporary media files immediately after transmission or if the operation fails, keeping the host system disk clean.
+- **Video Streaming Support**: Added support for the native video streaming parameter (`supportStreaming: true`) for sent video files.
+---
+
 ## GramPro v6.0.3 [Date: 16-MAY-2026] 🚀
 
 Patch release adding new Telegram account automation actions from the merged community PRs.

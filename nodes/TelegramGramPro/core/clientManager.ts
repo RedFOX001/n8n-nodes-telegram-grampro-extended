@@ -23,6 +23,9 @@ const connectionLocks = new Map<string, Promise<TelegramClient>>();
 const connectionTimestamps = new Map<string, number>();
 // Track last usage time for idle cleanup
 const clientLastUsed = new Map<string, number>();
+// Track the number of active (in-flight) operations per client key.
+// While a client has active operations the idle-cleanup MUST NOT disconnect it.
+const activeOperations = new Map<string, number>();
 // Cleanup interval (1 minute - frequent checks for responsive cleanup)
 const CLEANUP_INTERVAL = 1 * 60 * 1000;
 const MAX_CONNECTION_AGE = 30 * 60 * 1000; // 30 minutes
@@ -52,8 +55,9 @@ function cleanupStaleConnections(): void {
 		const lastUsed = clientLastUsed.get(key) ?? 0;
 		const isIdle = now - lastUsed > MAX_IDLE_AGE;
 		const hasEventHandlers = client.listEventHandlers().length > 0;
+		const hasActiveOps = (activeOperations.get(key) ?? 0) > 0;
 
-		if (isIdle && !hasEventHandlers && !isDestroyedClient(client)) {
+		if (isIdle && !hasEventHandlers && !hasActiveOps && !isDestroyedClient(client)) {
 			logger.info(
 				`[ClientManager] Auto-disconnecting idle client (no event handlers, idle ${Math.round((now - lastUsed) / 1000)}s): ${key}`,
 			);
@@ -145,8 +149,9 @@ export async function getClient(
 			const lastUsed = clientLastUsed.get(key) ?? 0;
 			const isIdle = Date.now() - lastUsed >= MAX_IDLE_AGE;
 			const hasEventHandlers = existingClient.listEventHandlers().length > 0;
+			const hasActiveOps = (activeOperations.get(key) ?? 0) > 0;
 
-			if (isIdle && !hasEventHandlers) {
+			if (isIdle && !hasEventHandlers && !hasActiveOps) {
 				logger.info(
 					`[ClientManager] [${purpose}] Client ${numericApiId} is idle (${Math.round((Date.now() - lastUsed) / 1000)}s) with no event handlers. Destroying and creating fresh client.`,
 				);
@@ -304,5 +309,59 @@ export async function cleanupAllClients(): Promise<void> {
 	connectionLocks.clear();
 	connectionTimestamps.clear();
 	clientLastUsed.clear();
+	activeOperations.clear();
 	logger.info('[ClientManager] Cleanup complete.');
+}
+
+/**
+ * Mark a client as having an active long-running operation.
+ * While active, the idle-cleanup will NOT disconnect the client.
+ * Always pair with `markClientIdle` in a `finally` block.
+ */
+export function markClientActive(apiId: number | string, session: string): void {
+	const numericApiId = typeof apiId === 'string' ? parseInt(apiId, 10) : apiId;
+	const key = buildClientKey(numericApiId, session);
+	activeOperations.set(key, (activeOperations.get(key) ?? 0) + 1);
+	clientLastUsed.set(key, Date.now());
+	logger.debug(`[ClientManager] Client marked active (ops=${activeOperations.get(key)}): ${numericApiId}`);
+}
+
+/**
+ * Mark a client operation as complete. Decrements the active counter.
+ * When all operations complete the client becomes eligible for idle cleanup again.
+ */
+export function markClientIdle(apiId: number | string, session: string): void {
+	const numericApiId = typeof apiId === 'string' ? parseInt(apiId, 10) : apiId;
+	const key = buildClientKey(numericApiId, session);
+	const current = activeOperations.get(key) ?? 0;
+	if (current <= 1) {
+		activeOperations.delete(key);
+	} else {
+		activeOperations.set(key, current - 1);
+	}
+	clientLastUsed.set(key, Date.now());
+	logger.debug(`[ClientManager] Client marked idle (ops=${activeOperations.get(key) ?? 0}): ${numericApiId}`);
+}
+
+/**
+ * Ensure a client is connected. If it has been disconnected (e.g. during a
+ * long download), attempt to reconnect it transparently.
+ */
+export async function ensureConnected(
+	apiId: number | string,
+	apiHash: string,
+	session: string,
+): Promise<TelegramClient> {
+	const numericApiId = typeof apiId === 'string' ? parseInt(apiId, 10) : apiId;
+	const key = buildClientKey(numericApiId, session);
+	const existing = clients.get(key);
+
+	if (existing && !isDestroyedClient(existing) && existing.connected) {
+		clientLastUsed.set(key, Date.now());
+		return existing;
+	}
+
+	// Client was disconnected or destroyed — get a fresh one
+	logger.warn(`[ClientManager] Client was disconnected during operation, reconnecting...`);
+	return getClient(numericApiId, apiHash, session);
 }
