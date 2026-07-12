@@ -35,6 +35,8 @@
 		"lint:fix": "n8n-node lint --fix",
 		"n8n-scan": "npx @n8n/scan-community-package n8n-nodes-telegram-grampro-extended",
 		"test": "n8n-node lint && n8n-node build",
+		"test:unit": "vitest run",
+		"test:watch": "vitest",
 		"release": "n8n-node release",
 		"prepublishOnly": "n8n-node prerelease"
 	},
