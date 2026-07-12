@@ -170,7 +170,7 @@ describe('enrichHistoryStats()', () => {
 		await enrichHistoryStats(
 			client, 'mockPeer',
 			createMockChatEntity(), // className === 'Chat'
-			[1, 2], true, statsMap,
+			[1, 2, 3], true, statsMap,
 		);
 
 		// views should still be set
