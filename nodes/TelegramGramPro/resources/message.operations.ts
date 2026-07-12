@@ -1889,10 +1889,10 @@ async function getHistory(
 			logger.warn('Failed to batch fetch sender entities for history: ' + (err as Error).message);
 		}
 	}
-    if (includeStats && orderedGroups.length > 0) {
-        const primaryIds = orderedGroups.map((group) => group.messages[0].id);
-        await enrichHistoryStats(client, resolvedPeer, chatEntity, primaryIds, includeReactions, statsByMessageId);
-    }
+	if (includeStats && orderedGroups.length > 0) {
+		const primaryIds = orderedGroups.map((group) => group.messages[0].id);
+		await enrichHistoryStats(client, resolvedPeer, chatEntity, primaryIds, includeReactions, statsByMessageId);
+	}
 	for (const group of orderedGroups) {
 		const primaryMessage = group.messages[0];
 		const messageObj = primaryMessage as unknown as Api.Message;
