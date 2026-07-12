@@ -2861,7 +2861,31 @@ async function enrichHistoryStats(
             try {
                 let fullMessages: Array<Record<string, unknown>>;
                 if (isChannel) {
-                    const inputChannel = peer as Api.InputChannel;
+                    const inputChannel = toInputChannel(peer) ?? toInputChannel(chatEntity);
+                    if (!inputChannel) {
+                        logger.warn(
+                            'getHistory includeStats: cannot build InputChannel for channel reactions, ' +
+                                'defaulting chunk to empty reactions',
+                        );
+                        idChunk.forEach((msgId) => {
+                            const ex = statsByMessageId.get(msgId);
+                            if (ex) {
+                                if (ex.reactions === undefined) {
+                                    ex.reactions = [];
+                                    statsByMessageId.set(msgId, ex);
+                                }
+                            } else {
+                                statsByMessageId.set(msgId, {
+                                    views: null,
+                                    forwards: null,
+                                    repliesCount: null,
+                                    hasComments: false,
+                                    reactions: [],
+                                });
+                            }
+                        });
+                        continue;
+                    }
                     const chResult = await withRateLimit(() =>
                         safeExecute(() =>
                             client.invoke(
