@@ -348,8 +348,11 @@ describe('enrichHistoryStats()', () => {
 		// Views batch still works — this is the "best effort" fallback
 		expect(statsMap.get(1)?.views).toBe(100);
 		expect(statsMap.get(1)?.forwards).toBe(10);
-		// Reactions are NOT attempted — reactions field stays undefined
-		expect(statsMap.get(1)?.reactions).toBeUndefined();
+		// Reactions API not callable (no InputChannel) — code sets empty array
+		// as best-effort fallback (views remain, reactions are [])
+		expect(statsMap.get(1)?.reactions).toEqual([]);
+		expect(statsMap.get(2)?.reactions).toEqual([]);
+		expect(statsMap.get(3)?.reactions).toEqual([]);
 	});
 
 	// ── includeReactions=false: reactions batch skipped entirely ───────
