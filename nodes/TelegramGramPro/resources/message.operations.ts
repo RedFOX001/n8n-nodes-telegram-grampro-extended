@@ -2856,7 +2856,7 @@ async function enrichHistoryStats(
             });
         }
 
-        // ── Batch 2: reactions (via direct API calls per TЗ) ──────
+        // ── Batch 2: reactions (via direct API calls per spec) ──────
         if (includeReactions) {
             try {
                 let fullMessages: Array<Record<string, unknown>>;
