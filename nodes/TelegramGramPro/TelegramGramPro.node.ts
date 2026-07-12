@@ -103,14 +103,14 @@ const chatActionTypes = [
 
 export class TelegramGramPro implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Telegram GramPro',
+		displayName: 'Telegram GramPro Extended',
 		name: 'telegramGramPro',
 		subtitle: '={{$parameter["resource"] + ": " + $parameter["operation"]}}',
 		icon: 'file:telegram-grampro.svg',
 		group: ['transform'],
 		version: 1,
-		description: 'Advanced Telegram MTProto client',
-		defaults: { name: 'Telegram GramPro' },
+		description: 'Extended fork of Telegram GramPro — advanced MTProto automation with post statistics, discussion analytics and more.',
+		defaults: { name: 'Telegram GramPro Extended' },
 		codex: {
 			categories: ['Communication'],
 			alias: ['Telegram GramPro', 'GramPro'],
