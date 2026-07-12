@@ -327,4 +327,49 @@ describe('enrichHistoryStats()', () => {
 			views: null, forwards: null, repliesCount: null, hasComments: false,
 		});
 	});
+
+	// ── toInputChannel fallback: channel without accessHash ───────────
+	it('skips reactions for channel without accessHash (only views enriched)', async () => {
+		const client = createMockClient();
+		const statsMap = new Map<number, HistoryStatsFields>();
+
+		// Channel entity WITHOUT accessHash → toInputChannel returns null
+		const channelEntityNoAccess = {
+			id: '99999',
+			className: 'Channel',
+		} as unknown as TelegramEntity;
+
+		await enrichHistoryStats(
+			client, { channelId: '99999' } as never, // peer also without accessHash
+			channelEntityNoAccess,
+			[1], true, statsMap,
+		);
+
+		// Views batch still works — this is the "best effort" fallback
+		expect(statsMap.get(1)?.views).toBe(100);
+		expect(statsMap.get(1)?.forwards).toBe(10);
+		// Reactions are NOT attempted — reactions field stays undefined
+		expect(statsMap.get(1)?.reactions).toBeUndefined();
+	});
+
+	// ── includeReactions=false: reactions batch skipped entirely ───────
+	it('does not set reactions when includeReactions=false', async () => {
+		const client = createMockClient();
+		const statsMap = new Map<number, HistoryStatsFields>();
+
+		await enrichHistoryStats(
+			client, 'mockPeer', createMockChannelEntity(),
+			[1, 2, 3], false, // includeReactions = false
+			statsMap,
+		);
+
+		// Views should be set normally
+		expect(statsMap.get(1)?.views).toBe(100);
+		expect(statsMap.get(2)?.views).toBe(200);
+		expect(statsMap.get(3)?.views).toBe(300);
+		// Reactions field should be undefined (never set)
+		expect(statsMap.get(1)?.reactions).toBeUndefined();
+		expect(statsMap.get(2)?.reactions).toBeUndefined();
+		expect(statsMap.get(3)?.reactions).toBeUndefined();
+	});
 });
