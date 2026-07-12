@@ -16,7 +16,13 @@ import { pipeline } from 'stream/promises';
 import { logger } from '../core/logger';
 import { prepareTelegramTextInput, renderTelegramEntities } from '../core/messageFormatting';
 import { asNodeOperationError, createNodeOperationError } from '../core/nodeOperationError';
-import type { TelegramClientInstance, TelegramCredentials, TelegramEntity } from '../core/types';
+import type {
+    TelegramClientInstance,
+    TelegramCredentials,
+    TelegramEntity,
+    HistoryStatsFields,
+} from '../core/types';
+import { chunk } from '../core/operationHelpers';
 import {
 	buildSharedAlbumPayload,
 	buildSharedMessagePayload,
@@ -1839,7 +1845,10 @@ async function getHistory(
 
 	const items = [];
 	const chatEntity = (await getEntityLoose(client, chatIdInput)) as TelegramEntity;
-
+    const includeStats = this.getNodeParameter('includeStats', i, false) as boolean;
+    const includeReactions = this.getNodeParameter('includeReactions', i, true) as boolean;
+    const statsByMessageId = new Map<number, HistoryStatsFields>();
+	
 	// Group messages by groupedId to support albums in history
 	const groups = new Map<string, TelegramMessageView[]>();
 	const orderedGroups: Array<{ type: 'single' | 'album'; messages: TelegramMessageView[] }> = [];
@@ -1879,7 +1888,10 @@ async function getHistory(
 			logger.warn('Failed to batch fetch sender entities for history: ' + (err as Error).message);
 		}
 	}
-
+    if (includeStats && orderedGroups.length > 0) {
+        const primaryIds = orderedGroups.map((group) => group.messages[0].id);
+        await enrichHistoryStats(client, chatIdInput, primaryIds, includeReactions, statsByMessageId);
+    }
 	for (const group of orderedGroups) {
 		const primaryMessage = group.messages[0];
 		const messageObj = primaryMessage as unknown as Api.Message;
@@ -1911,6 +1923,7 @@ async function getHistory(
 			json: {
 				...payload,
 				humanDate: formatDateWithTime(new Date(primaryMessage.date * 1000)),
+				...(includeStats ? statsByMessageId.get(primaryMessage.id) : {}),
 			},
 			pairedItem: { item: i },
 		});
@@ -2770,4 +2783,99 @@ async function handleText(
 		message: text,
 		formattingEntities: message.entities || [],
 	});
+	
+/**
+ * Batch-first stats enrichment for getHistory (Release 1 scope).
+ * Up to 2 extra MTProto calls per page (views + optional full-message reactions),
+ * both chunked by 100 IDs. Never throws — degrades to null/[] per affected chunk
+ * so a stats failure never breaks the base getHistory response.
+ */
+async function enrichHistoryStats(
+    client: TelegramClientInstance,
+    chatIdInput: string,
+    messageIds: number[],
+    includeReactions: boolean,
+    statsByMessageId: Map<number, HistoryStatsFields>,
+): Promise<void> {
+    if (messageIds.length === 0) return;
+
+    const peer = await resolvePeer(client, chatIdInput);
+    const idChunks = chunk(messageIds, 100);
+
+    for (const idChunk of idChunks) {
+        let viewsResult: Api.messages.MessageViews | undefined;
+        try {
+            viewsResult = (await withRateLimit(() =>
+                safeExecute(() =>
+                    client.invoke(
+                        new Api.messages.GetMessagesViews({
+                            peer: peer as never,
+                            id: idChunk,
+                            increment: false,
+                        }),
+                    ),
+                ),
+            )) as unknown as Api.messages.MessageViews;
+        } catch (error) {
+            logger.warn(
+                'getHistory includeStats: getMessagesViews failed for chunk, defaulting to nulls: ' +
+                    (error as Error).message,
+            );
+        }
+
+        idChunk.forEach((msgId, index) => {
+            const view = viewsResult?.views?.[index];
+            statsByMessageId.set(msgId, {
+                views: view?.views ?? null,
+                forwards: view?.forwards ?? null,
+                repliesCount: view?.replies?.replies ?? null,
+                hasComments: !!view?.replies?.comments,
+            });
+        });
+
+        if (includeReactions) {
+            try {
+                const fullMessages = await withRateLimit(() =>
+                    safeExecute(() => getMessagesLoose(client, chatIdInput, { ids: idChunk })),
+                );
+                for (const msg of fullMessages || []) {
+                    if (!msg || (msg as unknown as { className?: string }).className === 'MessageEmpty') {
+                        continue;
+                    }
+                    const existing = statsByMessageId.get(msg.id) ?? {
+                        views: null,
+                        forwards: null,
+                        repliesCount: null,
+                        hasComments: false,
+                    };
+                    const reactionResults = (
+                        msg as unknown as {
+                            reactions?: {
+                                results?: Array<{ reaction?: { emoticon?: string }; count?: number }>;
+                            };
+                        }
+                    ).reactions?.results;
+                    existing.reactions = Array.isArray(reactionResults)
+                        ? reactionResults.map((r) => ({
+                                emoji: r.reaction?.emoticon ?? '',
+                                count: r.count ?? 0,
+                            }))
+                        : [];
+                    statsByMessageId.set(msg.id, existing);
+                }
+            } catch (error) {
+                logger.warn(
+                    'getHistory includeStats: reactions fetch failed for chunk, defaulting to empty: ' +
+                        (error as Error).message,
+                );
+                idChunk.forEach((msgId) => {
+                    const existing = statsByMessageId.get(msgId);
+                    if (existing && existing.reactions === undefined) {
+                        existing.reactions = [];
+                    }
+                });
+            }
+        }
+    }
+}
 }
