@@ -375,4 +375,86 @@ describe('enrichHistoryStats()', () => {
 		expect(statsMap.get(2)?.reactions).toBeUndefined();
 		expect(statsMap.get(3)?.reactions).toBeUndefined();
 	});
+
+	// ── Defensive mapping: views/forwards null when fields missing ─────
+	it('sets views/forwards to null when those fields are missing from API response', async () => {
+		const client = createMockClient({
+			viewsResult: {
+				views: [
+					{ replies: { replies: 7, comments: true } }, // no views, no forwards
+				],
+			},
+		});
+		const statsMap = new Map<number, HistoryStatsFields>();
+
+		await enrichHistoryStats(
+			client, 'mockPeer', createMockChannelEntity(),
+			[1], false, statsMap,
+		);
+
+		// views and forwards should be null (defensive mapping via `?? null`)
+		// but replies should be set normally
+		expect(statsMap.get(1)).toEqual({
+			views: null,
+			forwards: null,
+			repliesCount: 7,
+			hasComments: true,
+		});
+	});
+
+	// ── GetMessages (reactions batch) failure → views intact, reactions [] ─
+	it('keeps views intact and sets reactions to [] when reactions API throws', async () => {
+		const client = createMockClient() as { invoke: unknown };
+		// First call (views) succeeds, second call (reactions) throws
+		client.invoke = vi.fn()
+			.mockResolvedValueOnce({
+				views: [
+					{ views: 500, forwards: 50, replies: { replies: 3, comments: false } },
+				],
+			})
+			.mockRejectedValueOnce(new Error('CHANNEL_PRIVATE'));
+
+		const statsMap = new Map<number, HistoryStatsFields>();
+
+		await enrichHistoryStats(
+			client as TelegramClientInstance, 'mockPeer', createMockChannelEntity(),
+			[1], true, statsMap, // includeReactions = true
+		);
+
+		// Views batch already populated statsMap
+		expect(statsMap.get(1)?.views).toBe(500);
+		expect(statsMap.get(1)?.forwards).toBe(50);
+		// Reactions batch failed → reactions set to [] (defensive, not undefined)
+		expect(statsMap.get(1)?.reactions).toEqual([]);
+	});
+
+	// ── Custom emoticon (paid reactions) ──────────────────────────────
+	it('maps paid/custom reactions with emoji_id fallback to empty emoji string', async () => {
+		const client = createMockClient({
+			messagesResult: {
+				messages: [
+					{
+						id: 1,
+						reactions: {
+							results: [
+								{ reaction: { emoticon: '🎉' }, count: 100 },
+								{ reaction: {}, count: 50 }, // no emoticon (e.g. custom emoji)
+							],
+						},
+					},
+				],
+			},
+		});
+		const statsMap = new Map<number, HistoryStatsFields>();
+
+		await enrichHistoryStats(
+			client, 'mockPeer', createMockChannelEntity(),
+			[1], true, statsMap,
+		);
+
+		expect(statsMap.get(1)?.reactions).toEqual([
+			{ emoji: '🎉', count: 100 },
+			{ emoji: '', count: 50 }, // empty string when no emoticon (e.g. custom emoji)
+		]);
+	});
 });
