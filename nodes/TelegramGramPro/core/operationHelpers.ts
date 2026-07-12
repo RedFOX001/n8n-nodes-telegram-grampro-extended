@@ -5,6 +5,20 @@ import { withRateLimit } from './rateLimiter';
 import type { TelegramClientInstance, TelegramCredentials } from './types';
 
 /**
+ * Splits an array into fixed-size chunks. Used for batching MTProto calls
+ * (e.g. messages.getMessagesViews / messages.getMessages) that have a
+ * per-request ID limit (Telegram caps most such calls around 100 IDs).
+ */
+export function chunk<T>(items: T[], size: number): T[][] {
+	if (size <= 0) return [items];
+	const result: T[][] = [];
+	for (let index = 0; index < items.length; index += size) {
+		result.push(items.slice(index, index + size));
+	}
+	return result;
+}
+
+/**
  * Base class for Telegram operations to reduce code duplication
  */
 export abstract class BaseOperation {

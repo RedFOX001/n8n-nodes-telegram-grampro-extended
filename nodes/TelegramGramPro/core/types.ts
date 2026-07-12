@@ -325,3 +325,24 @@ export interface ParticipantsOptions {
 	filter?: 'admins' | 'kicked' | 'banned' | 'recent' | 'search';
 	query?: string;
 }
+
+/**
+ * Reaction summary entry for a single message
+ */
+export interface MessageReactionSummary {
+	emoji: string;
+	count: number;
+}
+
+/**
+ * Extended statistics fields optionally merged into getHistory results
+ * when includeStats=true (Release 1 scope — no discussionChatId enrichment
+ * requiring an extra MTProto call).
+ */
+export interface HistoryStatsFields {
+	views: number | null;
+	forwards: number | null;
+	repliesCount: number | null;
+	hasComments: boolean;
+	reactions?: MessageReactionSummary[];
+}
