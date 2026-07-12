@@ -342,7 +342,7 @@ describe('enrichHistoryStats()', () => {
 		await enrichHistoryStats(
 			client, { channelId: '99999' } as never, // peer also without accessHash
 			channelEntityNoAccess,
-			[1], true, statsMap,
+			[1, 2, 3], true, statsMap, // 3 IDs to match default mock's 3 views (F4 length guard)
 		);
 
 		// Views batch still works — this is the "best effort" fallback
