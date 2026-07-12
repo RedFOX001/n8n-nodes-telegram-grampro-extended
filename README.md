@@ -6,6 +6,8 @@
 
 > Fork of the original [n8n-nodes-telegram-grampro](https://github.com/sadiakant/n8n-nodes-telegram-grampro) with a planned focus on channel post analytics, discussion comment retrieval, and optional statistics enrichment for message history.
 
+<div align="left">
+  
 ## What's planned in this fork
 
 Compared with the upstream project, this fork is planned to add:
@@ -17,10 +19,14 @@ Compared with the upstream project, this fork is planned to add:
 - Defensive handling for missing reactions, missing discussion metadata, and partial Telegram responses.
 - Reuse of the existing internal request infrastructure such as rate limiting, flood wait handling, and Telegram error mapping.
 
+
 ## Upstream compatibility
 
 The goal is to extend the existing node without breaking the current API shape or replacing the internal MTProto request stack used by the original project.
 
+--
+
+<div align="center"> 
 **The ultimate MTProto automation engine for n8n. Enterprise-grade security, high-performance userbot triggers, and seamless Telegram integration.**
 
 <p align="center"> 
