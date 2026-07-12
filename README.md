@@ -4,6 +4,23 @@
 
 # 🚀 Telegram GramPro for n8n
 
+> Fork of the original [n8n-nodes-telegram-grampro](https://github.com/sadiakant/n8n-nodes-telegram-grampro) with a planned focus on channel post analytics, discussion comment retrieval, and optional statistics enrichment for message history.
+
+## What's planned in this fork
+
+Compared with the upstream project, this fork is planned to add:
+
+- Channel post statistics for one or multiple post IDs.
+- Discussion-thread comment retrieval for channel posts.
+- `getDiscussionInfo` helper operation for debugging channel-to-discussion links.
+- Optional `includeStats` support in `getHistory`.
+- Defensive handling for missing reactions, missing discussion metadata, and partial Telegram responses.
+- Reuse of the existing internal request infrastructure such as rate limiting, flood wait handling, and Telegram error mapping.
+
+## Upstream compatibility
+
+The goal is to extend the existing node without breaking the current API shape or replacing the internal MTProto request stack used by the original project.
+
 **The ultimate MTProto automation engine for n8n. Enterprise-grade security, high-performance userbot triggers, and seamless Telegram integration.**
 
 <p align="center"> 
