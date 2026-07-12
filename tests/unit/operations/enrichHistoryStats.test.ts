@@ -246,22 +246,16 @@ describe('enrichHistoryStats()', () => {
 
 	// ── Edge Case 6: GetMessagesViews failure → graceful nulls ───────
 	it('defaults to nulls when GetMessagesViews throws', async () => {
-		const failingClient = createMockClient({
-			viewsResult: Promise.reject(new Error('FLOOD_WAIT')),
-		} as never);
+		const failingClient = createMockClient() as { invoke: unknown };
 		// Override invoke to reject for views
-		(failingClient as { invoke: unknown }).invoke = vi.fn().mockRejectedValue(
-			new Error('FLOOD_WAIT'),
-		);
-		// But resolve for messages
-		(failingClient as { invoke: unknown }).invoke = vi.fn()
+		failingClient.invoke = vi.fn()
 			.mockRejectedValueOnce(new Error('FLOOD_WAIT'))
 			.mockResolvedValueOnce({ messages: [{ id: 1 }] });
 
 		const statsMap = new Map<number, HistoryStatsFields>();
 
 		await enrichHistoryStats(
-			failingClient, 'mockPeer', createMockChannelEntity(),
+			failingClient as TelegramClientInstance, 'mockPeer', createMockChannelEntity(),
 			[1], false, statsMap,
 		);
 
