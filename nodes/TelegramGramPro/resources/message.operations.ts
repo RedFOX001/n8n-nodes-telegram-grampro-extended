@@ -1855,7 +1855,7 @@ async function getHistory(
 	const orderedGroups: Array<{ type: 'single' | 'album'; messages: TelegramMessageView[] }> = [];
 
 	for (const m of messages) {
-		if (!m || m._ === 'MessageEmpty') continue;
+		if (!m || m._ === 'MessageEmpty' || (m as unknown as { className?: string }).className === 'MessageEmpty') continue;
 
 		const gid = m.groupedId?.toString();
 		if (gid) {
