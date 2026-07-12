@@ -7,7 +7,7 @@
 > **Fork** of [n8n-nodes-telegram-grampro](https://github.com/sadiakant/n8n-nodes-telegram-grampro) (upstream) with **extended post statistics** in `getHistory`.
 >
 > Published as `n8n-nodes-telegram-grampro-extended` — use both the original node and this fork side by side.
-
+ 
 <div align="left">
 
 ---
