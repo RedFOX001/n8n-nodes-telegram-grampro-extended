@@ -1891,7 +1891,7 @@ async function getHistory(
 	}
     if (includeStats && orderedGroups.length > 0) {
         const primaryIds = orderedGroups.map((group) => group.messages[0].id);
-        await enrichHistoryStats(client, chatIdInput, primaryIds, includeReactions, statsByMessageId);
+        await enrichHistoryStats(client, resolvedPeer, chatEntity, primaryIds, includeReactions, statsByMessageId);
     }
 	for (const group of orderedGroups) {
 		const primaryMessage = group.messages[0];
