@@ -1845,9 +1845,10 @@ async function getHistory(
 
 	const items = [];
 	const chatEntity = (await getEntityLoose(client, chatIdInput)) as TelegramEntity;
-    const includeStats = this.getNodeParameter('includeStats', i, false) as boolean;
-    const includeReactions = this.getNodeParameter('includeReactions', i, true) as boolean;
-    const statsByMessageId = new Map<number, HistoryStatsFields>();
+	const resolvedPeer = await resolvePeer(client, chatIdInput);
+	const includeStats = this.getNodeParameter('includeStats', i, false) as boolean;
+	const includeReactions = this.getNodeParameter('includeReactions', i, true) as boolean;
+	const statsByMessageId = new Map<number, HistoryStatsFields>();
 	
 	// Group messages by groupedId to support albums in history
 	const groups = new Map<string, TelegramMessageView[]>();
