@@ -120,12 +120,12 @@ export class TelegramGramPro implements INodeType {
 			resources: {
 				credentialDocumentation: [
 					{
-						url: 'https://github.com/sadiakant/n8n-nodes-telegram-grampro#credentials',
+						url: 'https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended#credentials',
 					},
 				],
 				primaryDocumentation: [
 					{
-						url: 'https://github.com/sadiakant/n8n-nodes-telegram-grampro#readme',
+						url: 'https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended#readme',
 					},
 				],
 			},
