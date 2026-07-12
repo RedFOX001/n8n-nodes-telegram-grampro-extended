@@ -891,7 +891,7 @@ export class TelegramGramPro implements INodeType {
                     },
                 },
                 description:
-                    '⚠️ Whether to include extended statistics (views, forwards, replies, reactions) for each post — may slow down execution as it requires additional MTProto calls',
+                    'Whether to include extended statistics (views, forwards, replies, reactions) for each post — ⚠️ may slow down execution as it requires additional MTProto calls',
             },
             {
                 displayName: 'Include Reactions',
