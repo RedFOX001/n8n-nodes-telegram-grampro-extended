@@ -2879,4 +2879,3 @@ async function enrichHistoryStats(
         }
     }
 }
-}
