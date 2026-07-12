@@ -2795,7 +2795,7 @@ async function handleText(
  * @param peer      — pre-resolved InputPeer from getHistory (avoids re-resolving)
  * @param chatEntity — entity object used to detect channel vs. chat for reactions API
  */
-async function enrichHistoryStats(
+export async function enrichHistoryStats(
 	client: TelegramClientInstance,
 	peer: unknown,
 	chatEntity: TelegramEntity,
