@@ -2791,20 +2791,25 @@ async function handleText(
  * Up to 2 extra MTProto calls per page (views + optional full-message reactions),
  * both chunked by 100 IDs. Never throws — degrades to null/[] per affected chunk
  * so a stats failure never breaks the base getHistory response.
+ *
+ * @param peer      — pre-resolved InputPeer from getHistory (avoids re-resolving)
+ * @param chatEntity — entity object used to detect channel vs. chat for reactions API
  */
 async function enrichHistoryStats(
     client: TelegramClientInstance,
-    chatIdInput: string,
+    peer: unknown,
+    chatEntity: TelegramEntity,
     messageIds: number[],
     includeReactions: boolean,
     statsByMessageId: Map<number, HistoryStatsFields>,
 ): Promise<void> {
     if (messageIds.length === 0) return;
 
-    const peer = await resolvePeer(client, chatIdInput);
+    const isChannel = chatEntity?.className === 'Channel' || (chatEntity as unknown as { _?: string })._ === 'channel';
     const idChunks = chunk(messageIds, 100);
 
     for (const idChunk of idChunks) {
+        // ── Batch 1: messages.getMessagesViews ──────────────────────
         let viewsResult: Api.messages.MessageViews | undefined;
         try {
             viewsResult = (await withRateLimit(() =>
@@ -2825,33 +2830,80 @@ async function enrichHistoryStats(
             );
         }
 
-        idChunk.forEach((msgId, index) => {
-            const view = viewsResult?.views?.[index];
-            statsByMessageId.set(msgId, {
-                views: view?.views ?? null,
-                forwards: view?.forwards ?? null,
-                repliesCount: view?.replies?.replies ?? null,
-                hasComments: !!view?.replies?.comments,
+        // Defensive: guard against length mismatch (F4)
+        if (!viewsResult?.views || viewsResult.views.length !== idChunk.length) {
+            logger.warn(
+                'getHistory includeStats: getMessagesViews returned length mismatch ' +
+                    `(got ${viewsResult?.views?.length ?? 0}, expected ${idChunk.length}), defaulting chunk to nulls`,
+            );
+            idChunk.forEach((msgId) => {
+                statsByMessageId.set(msgId, {
+                    views: null,
+                    forwards: null,
+                    repliesCount: null,
+                    hasComments: false,
+                });
             });
-        });
+        } else {
+            idChunk.forEach((msgId, index) => {
+                const view = viewsResult!.views![index];
+                statsByMessageId.set(msgId, {
+                    views: view?.views ?? null,
+                    forwards: view?.forwards ?? null,
+                    repliesCount: view?.replies?.replies ?? null,
+                    hasComments: !!view?.replies?.comments,
+                });
+            });
+        }
 
+        // ── Batch 2: reactions (via direct API calls per TЗ) ──────
         if (includeReactions) {
             try {
-                const fullMessages = await withRateLimit(() =>
-                    safeExecute(() => getMessagesLoose(client, chatIdInput, { ids: idChunk })),
-                );
-                for (const msg of fullMessages || []) {
-                    if (!msg || (msg as unknown as { className?: string }).className === 'MessageEmpty') {
+                let fullMessages: Array<Record<string, unknown>>;
+                if (isChannel) {
+                    const inputChannel = peer as Api.InputChannel;
+                    const chResult = await withRateLimit(() =>
+                        safeExecute(() =>
+                            client.invoke(
+                                new Api.channels.GetMessages({
+                                    channel: inputChannel,
+                                    id: idChunk.map((mid) => new Api.InputMessageID({ id: mid })),
+                                }),
+                            ),
+                        ),
+                    );
+                    fullMessages = ((chResult as unknown as { messages?: Array<Record<string, unknown>> }).messages ?? []);
+                } else {
+                    const msgResult = await withRateLimit(() =>
+                        safeExecute(() =>
+                            client.invoke(
+                                new Api.messages.GetMessages({
+                                    id: idChunk.map((mid) => new Api.InputMessageID({ id: mid })),
+                                }),
+                            ),
+                        ),
+                    );
+                    fullMessages = ((msgResult as unknown as { messages?: Array<Record<string, unknown>> }).messages ?? []);
+                }
+
+                for (const rawMsg of fullMessages) {
+                    // Unified MessageEmpty check: both className and _ (F3)
+                    if (
+                        !rawMsg ||
+                        (rawMsg as { className?: string }).className === 'MessageEmpty' ||
+                        (rawMsg as { _?: string })._ === 'MessageEmpty'
+                    ) {
                         continue;
                     }
-                    const existing = statsByMessageId.get(msg.id) ?? {
+                    const msgId = rawMsg.id as number;
+                    const existing = statsByMessageId.get(msgId) ?? {
                         views: null,
                         forwards: null,
                         repliesCount: null,
                         hasComments: false,
                     };
                     const reactionResults = (
-                        msg as unknown as {
+                        rawMsg as unknown as {
                             reactions?: {
                                 results?: Array<{ reaction?: { emoticon?: string }; count?: number }>;
                             };
@@ -2863,7 +2915,7 @@ async function enrichHistoryStats(
                                 count: r.count ?? 0,
                             }))
                         : [];
-                    statsByMessageId.set(msg.id, existing);
+                    statsByMessageId.set(msgId, existing);
                 }
             } catch (error) {
                 logger.warn(
@@ -2872,8 +2924,20 @@ async function enrichHistoryStats(
                 );
                 idChunk.forEach((msgId) => {
                     const existing = statsByMessageId.get(msgId);
-                    if (existing && existing.reactions === undefined) {
-                        existing.reactions = [];
+                    if (existing) {
+                        if (existing.reactions === undefined) {
+                            existing.reactions = [];
+                        }
+                        // Always write back to be safe (S2)
+                        statsByMessageId.set(msgId, existing);
+                    } else {
+                        statsByMessageId.set(msgId, {
+                            views: null,
+                            forwards: null,
+                            repliesCount: null,
+                            hasComments: false,
+                            reactions: [],
+                        });
                     }
                 });
             }
