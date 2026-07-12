@@ -879,7 +879,34 @@ export class TelegramGramPro implements INodeType {
 				},
 				description: 'Filter by specific message or media types. Leave empty to allow all media.',
 			},
-
+            {
+                displayName: 'Include Stats',
+                name: 'includeStats',
+                type: 'boolean',
+                default: false,
+                displayOptions: {
+                    show: {
+                        resource: ['message'],
+                        operation: ['getHistory'],
+                    },
+                },
+                description:
+                    'Whether to include extended statistics (views, forwards, replies, reactions) for each post. May slow down execution as it requires additional MTProto calls.',
+            },
+            {
+                displayName: 'Include Reactions',
+                name: 'includeReactions',
+                type: 'boolean',
+                default: true,
+                displayOptions: {
+                    show: {
+                        resource: ['message'],
+                        operation: ['getHistory'],
+                        includeStats: [true],
+                    },
+                },
+                description: 'Whether to include per-post reaction counts when Include Stats is enabled',
+            },
 			{
 				displayName: 'Delete for Everyone',
 				name: 'revoke',
