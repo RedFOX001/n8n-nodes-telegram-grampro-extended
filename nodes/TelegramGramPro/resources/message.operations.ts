@@ -2783,7 +2783,8 @@ async function handleText(
 		message: text,
 		formattingEntities: message.entities || [],
 	});
-	
+}
+
 /**
  * Batch-first stats enrichment for getHistory (Release 1 scope).
  * Up to 2 extra MTProto calls per page (views + optional full-message reactions),
