@@ -29,6 +29,7 @@ vi.mock('../../../nodes/TelegramGramPro/core/logger', () => ({
 function createMockChannelEntity(): TelegramEntity {
 	return {
 		id: '12345',
+		accessHash: '67890',
 		className: 'Channel',
 	} as unknown as TelegramEntity;
 }
