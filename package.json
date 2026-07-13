@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-telegram-grampro-extended",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Telegram GramPro Extended — enhanced fork of n8n-nodes-telegram-grampro with extended post statistics in getHistory and planned discussion analytics.",
 	"license": "MIT",
 	"keywords": [
