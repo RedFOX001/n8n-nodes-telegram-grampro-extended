@@ -1,0 +1,11 @@
+import { IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
+import type { TelegramClientInstance } from '../core/types';
+export declare function userRouter(this: IExecuteFunctions, operation: string, i: number): Promise<INodeExecutionData[]>;
+export declare function getMe(this: IExecuteFunctions, client: TelegramClientInstance, i: number): Promise<INodeExecutionData[]>;
+export declare function getMeScoped(this: IExecuteFunctions, client: TelegramClientInstance, i: number, cacheScope: string): Promise<INodeExecutionData[]>;
+export declare function getFullUser(this: IExecuteFunctions, client: TelegramClientInstance, i: number): Promise<INodeExecutionData[]>;
+export declare function getFullUserScoped(this: IExecuteFunctions, client: TelegramClientInstance, i: number, cacheScope: string): Promise<INodeExecutionData[]>;
+export declare function updateProfile(this: IExecuteFunctions, client: TelegramClientInstance, i: number): Promise<INodeExecutionData[]>;
+export declare function updateUsername(this: IExecuteFunctions, client: TelegramClientInstance, i: number): Promise<INodeExecutionData[]>;
+export declare function getProfilePhoto(this: IExecuteFunctions, client: TelegramClientInstance, i: number): Promise<INodeExecutionData[]>;
+export declare function updateStatus(this: IExecuteFunctions, client: TelegramClientInstance, i: number): Promise<INodeExecutionData[]>;
