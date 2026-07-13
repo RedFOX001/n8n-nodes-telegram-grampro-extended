@@ -1,7 +1,7 @@
 {
-	"name": "n8n-nodes-telegram-grampro-extended",
-	"version": "1.0.1",
-	"description": "Telegram GramPro Extended — enhanced fork of n8n-nodes-telegram-grampro with extended post statistics in getHistory and planned discussion analytics.",
+	"name": "n8n-nodes-telegram-grampro",
+	"version": "6.0.4",
+	"description": "Telegram GramPro is Advanced n8n node for Telegram MTProto automation using Teleproto (GramJS fork), featuring user account triggers and 2FA support.",
 	"license": "MIT",
 	"keywords": [
 		"n8n",
@@ -13,7 +13,6 @@
 		"telegram-mtproto",
 		"telegram-user",
 		"telegram-grampro",
-		"telegram-grampro-extended",
 		"telegram-js",
 		"GramPro",
 		"gramjs",
@@ -33,7 +32,7 @@
 		"format": "prettier credentials nodes/TelegramGramPro nodes/TelegramGramProTrigger --write",
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
-		"n8n-scan": "npx @n8n/scan-community-package n8n-nodes-telegram-grampro-extended",
+		"n8n-scan": "npx @n8n/scan-community-package n8n-nodes-telegram-grampro",
 		"test": "n8n-node lint && n8n-node build",
 		"test:unit": "vitest run",
 		"test:watch": "vitest",
@@ -41,17 +40,16 @@
 		"prepublishOnly": "n8n-node prerelease"
 	},
 	"author": {
-		"name": "RedFOX001",
-		"email": "redfox001@users.noreply.github.com"
+		"name": "sadiakant",
+		"email": "krushnakantsadiya@gmail.com"
 	},
-	"upstream": "https://github.com/sadiakant/n8n-nodes-telegram-grampro",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended.git"
+		"url": "git+https://github.com/sadiakant/n8n-nodes-telegram-grampro.git"
 	},
-	"homepage": "https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended#readme",
+	"homepage": "https://github.com/sadiakant/n8n-nodes-telegram-grampro#readme",
 	"bugs": {
-		"url": "https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended/issues"
+		"url": "https://github.com/sadiakant/n8n-nodes-telegram-grampro/issues"
 	},
 	"dependencies": {
 		"teleproto": "^1.224.1"
