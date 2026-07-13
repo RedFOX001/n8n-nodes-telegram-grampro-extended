@@ -103,14 +103,14 @@ const chatActionTypes = [
 
 export class TelegramGramPro implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Telegram GramPro',
+		displayName: 'Telegram GramPro Extended',
 		name: 'telegramGramPro',
 		subtitle: '={{$parameter["resource"] + ": " + $parameter["operation"]}}',
 		icon: 'file:telegram-grampro.svg',
 		group: ['transform'],
 		version: 1,
-		description: 'Advanced Telegram MTProto client',
-		defaults: { name: 'Telegram GramPro' },
+		description: 'Extended fork of Telegram GramPro — advanced MTProto automation with post statistics, discussion analytics and more.',
+		defaults: { name: 'Telegram GramPro Extended' },
 		codex: {
 			categories: ['Communication'],
 			alias: ['Telegram GramPro', 'GramPro'],
@@ -120,12 +120,12 @@ export class TelegramGramPro implements INodeType {
 			resources: {
 				credentialDocumentation: [
 					{
-						url: 'https://github.com/sadiakant/n8n-nodes-telegram-grampro#credentials',
+						url: 'https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended#credentials',
 					},
 				],
 				primaryDocumentation: [
 					{
-						url: 'https://github.com/sadiakant/n8n-nodes-telegram-grampro#readme',
+						url: 'https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended#readme',
 					},
 				],
 			},
@@ -879,7 +879,34 @@ export class TelegramGramPro implements INodeType {
 				},
 				description: 'Filter by specific message or media types. Leave empty to allow all media.',
 			},
-
+            {
+                displayName: 'Include Stats',
+                name: 'includeStats',
+                type: 'boolean',
+                default: false,
+                displayOptions: {
+                    show: {
+                        resource: ['message'],
+                        operation: ['getHistory'],
+                    },
+                },
+                description:
+                    'Whether to include extended statistics (views, forwards, replies, reactions) for each post — ⚠️ may slow down execution as it requires additional MTProto calls',
+            },
+            {
+                displayName: 'Include Reactions',
+                name: 'includeReactions',
+                type: 'boolean',
+                default: true,
+                displayOptions: {
+                    show: {
+                        resource: ['message'],
+                        operation: ['getHistory'],
+                        includeStats: [true],
+                    },
+                },
+                description: 'Whether to include per-post reaction counts when Include Stats is enabled',
+            },
 			{
 				displayName: 'Delete for Everyone',
 				name: 'revoke',

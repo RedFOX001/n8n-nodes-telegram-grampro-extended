@@ -1,433 +1,112 @@
 <div align="center">
 
-![Telegram GramPro Banner](docs/assets/n8n-nodes-telegram-grampro.webp)
+![Telegram GramPro Extended Banner](docs/assets/n8n-nodes-telegram-grampro.webp)
 
-# 🚀 Telegram GramPro for n8n
+# 🚀 Telegram GramPro Extended for n8n
 
-> Fork of the original [n8n-nodes-telegram-grampro](https://github.com/sadiakant/n8n-nodes-telegram-grampro) with a planned focus on channel post analytics, discussion comment retrieval, and optional statistics enrichment for message history.
-
+> **Fork** of [n8n-nodes-telegram-grampro](https://github.com/sadiakant/n8n-nodes-telegram-grampro) (upstream) with **extended post statistics** in `getHistory`.
+>
+> Published as `n8n-nodes-telegram-grampro-extended` — use both the original node and this fork side by side.
+ 
 <div align="left">
-  
-## What's planned in this fork
-
-Compared with the upstream project, this fork is planned to add:
-
-- Channel post statistics for one or multiple post IDs.
-- Discussion-thread comment retrieval for channel posts.
-- `getDiscussionInfo` helper operation for debugging channel-to-discussion links.
-- Optional `includeStats` support in `getHistory`.
-- Defensive handling for missing reactions, missing discussion metadata, and partial Telegram responses.
-- Reuse of the existing internal request infrastructure such as rate limiting, flood wait handling, and Telegram error mapping.
-
-
-## Upstream compatibility
-
-The goal is to extend the existing node without breaking the current API shape or replacing the internal MTProto request stack used by the original project.
-
---
-
-<div align="center"> 
-**The ultimate MTProto automation engine for n8n. Enterprise-grade security, high-performance userbot triggers, and seamless Telegram integration.**
-
-<p align="center"> 
-  <a href="https://t.me/n8n_nodes_0">
-    <img src="./docs/assets/n8n_nodes_0.webp" alt="n8n_nodes_0" width="150" />
-  </a>
-</p>
-
-[📖 Operations Guide](./docs/OPERATIONS_GUIDE.md) | [🔐 Auth Guide](./docs/AUTHORIZATION_GUIDE.md) | [🔧 Troubleshooting](./docs/TROUBLESHOOTING_GUIDE.md) | [📝 Logs](./docs/CHANGE_LOG.md) 
 
 ---
 
-</div>
+## ✅ Release 1 — What's implemented
 
-## 🌟 Why Telegram GramPro?
+### Extended Post Statistics in `getHistory`
 
-Most Telegram n8n nodes use the standard Bot API, which is restricted by Telegram's bot policies. **GramPro** uses the **MTProto protocol** (via Teleproto), allowing you to automate **User Accounts** and **Channels** with the full power of a native Telegram client.
+The core addition of this fork: a new `Include Stats` boolean parameter on the **Get Chat History** operation that enriches each returned message with **views, forwards, replies count, has-comments flag, and reactions** — using batch MTProto calls (max 2 extra calls per page).
 
-## 🚀 Transform Your Telegram Automation
+| Field | Type | Description |
+|---|---|---|
+| `views` | `number \| null` | Total post views |
+| `forwards` | `number \| null` | Total forwards count |
+| `repliesCount` | `number \| null` | Number of replies (comments thread) |
+| `hasComments` | `boolean` | Whether the post has a linked comment thread |
+| `reactions` | `Array<{emoji, count}> \| undefined` | Per-post reaction counts |
 
-Telegram GramPro is a comprehensive n8n custom node that brings the full power of Telegram's MTProto protocol to your automation workflows. Built with **Teleproto** and designed for production use, it offers enterprise-grade features with an intuitive interface.
+**Key design decisions:**
 
-### 🌟 **Key Features**
+- `includeStats: false` (default) — behaviour is **identical** to the upstream node, zero changes
+- Batch-first: `messages.getMessagesViews` + `channels.getMessages`/`messages.getMessages` — one call per chunk of 100 IDs
+- Reuses the existing core infrastructure (`rateLimiter`, `floodWaitHandler`, `operationHelpers`) — no duplicate retry stack
+- Defensive: errors per chunk → `logger.warn` + `null`/`[]` defaults, never breaks the full history response
+- `discussionChatId` is **excluded** from Release 1 (will be added in Release 2 along with full discussion analytics)
 
-#### **Core Operations**
+### Installation
 
-- **Messages**: Send, get messages (time-based filters), mark history as read/seen, edit, delete, pin, forward, copy, create polls and quizzes
-- **Chats**: Get chats, dialogs, join/leave, create groups/channels, send live chat actions like typing or uploading
-- **Users**: Get user info, full details with bio and common chats, update profile, change username, update online/offline status, get profile photos
-- **Media**: Download media files with progress tracking
-- **Channels**: Get participants, manage members, ban/promote users
+```bash
+# n8n Community Nodes (recommended)
+n8n settings → Community Nodes → Add "n8n-nodes-telegram-grampro-extended"
 
-#### **Enterprise Security & Performance**
+# Or clone & build manually
+git clone https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended.git
+cd n8n-nodes-telegram-grampro-extended
+npm install
+npm run build
+```
 
-- 🔐 **AES-256-GCM Session Encryption** - Military-grade security with automatic key derivation
-- ⚡ **Smart Rate Limiting** - Prevents API limits with intelligent queuing and priority handling
-- 🛡️ **Enhanced Error Handling** - Automatic retry for flood waits, timeouts, and connection issues
-- 🔗 **Connection Management** - Advanced client pooling with health checks and auto-reconnection
-- 📊 **Structured Logging** - Production-ready logging with configurable levels and context
-- 🧠 **Smart Caching** - In-memory caching for frequently accessed data with TTL management
-- 🎯 **Input Validation** - Comprehensive validation with detailed error messages and warnings
+### Quick Setup
 
-- **Deleted Message Trigger** - Catch deletions with content recovery via snapshot memory 🗑️
-- **User Update Trigger** - Monitor real-time online/offline status and bio changes 👤
-- **Teleproto Engine** - Migrated to a more stable core to handle massive supergroups 📡
-- **Topic Support** - `Get History` now supports direct Thread/Topic URLs 🔗
-- **Read/Seen Messages** - Mark private, group, supergroup, and channel history as read up to a selected message ID
-- **Chat Actions** - Send typing, recording, uploading, choosing sticker/location/contact, game, animation seen, or cancel indicators
-- **Presence Control** - Switch your Telegram account status between online and offline from a workflow
-- **Copy Restricted Content** - Handle media that cannot be forwarded normally
-- **Edit Message Media** - Update media content in existing messages with caption support
-- **Enhanced Authentication** - Improved session management with better error handling
-- **Memory Optimization** - Automatic cleanup and resource management
-- **Performance Monitoring** - Built-in metrics and queue monitoring
+1. Get API credentials at [my.telegram.org](https://my.telegram.org)
+2. Create a session string using the built-in Auth operations (see [Authorization Guide](./docs/AUTHORIZATION_GUIDE.md))
+3. In n8n → Settings → Credentials → Telegram GramPro Extended → fill API ID, API Hash, Session String
 
-## 📦 Installation
+---
 
-### Method 1: n8n Community Nodes (Recommended)
+## 🔮 Roadmap — Release 2 (planned)
 
-1. Open n8n UI
-2. Go to **Settings** → **Community Nodes**
-3. Add in box "n8n-nodes-telegram-grampro"
-4. Click checkbox to allow to use external nodes.
-5. Click **Install**
-6. Restart n8n to load the custom node
+1. `getDiscussionInfo` — debug helper for channel-to-discussion group resolution
+2. `getPostComments` — read comments via `getDiscussionMessage` + `getReplies`
+3. `getPostStats` — standalone operation for targeted per-ID stats requests
+4. Deep-thread replies / recursive comments (v2)
+5. `discussionChatId` field in getHistory output
 
-> **Note:** If you have trouble updating the node in the n8n UI, uninstall (remove) the GramPro node first, then perform a fresh install to resolve the issue.
+---
 
-### Method 2: Custom Nodes Directory
+## 📦 Upstream features (present in both upstream and this fork)
 
-1. **Clone to n8n custom nodes directory**
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-3. **Build the project**
-   ```bash
-   npm run build
-   ```
-4. **Restart n8n** to load the custom node
+For the full feature set inherited from the upstream project (send/edit/delete/pin/forward messages, polls, media, user/channel management, triggers, chat actions, etc.), see the [Operations Guide](./docs/OPERATIONS_GUIDE.md) and the original [README](https://github.com/sadiakant/n8n-nodes-telegram-grampro#readme).
 
-### Method 3: GitHub Installation
-
-1. **Clone from GitHub**
-   ```bash
-   git clone https://github.com/sadiakant/n8n-nodes-telegram-grampro.git
-   ```
-2. **Move to n8n custom nodes directory**
-3. **Install dependencies**
-   ```bash
-   npm install
-   ```
-4. **Build the project**
-   ```bash
-   npm run build
-   ```
-5. **Restart n8n** to load the custom node
-
-## ⚙️ Quick Setup
-
-### 1. Get API Credentials
-
-- Visit [my.telegram.org](https://my.telegram.org)
-- Create new application
-- Note your **API ID** and **API Hash**
-
-### 2. Create Session String
-
-Use our built-in authentication operations. For detailed step-by-step instructions, see our [Authorization Guide](./docs/AUTHORIZATION_GUIDE.md).
-
-### 3. Configure Credentials
-
-In n8n → Settings → Credentials:
-
-- **API ID**: Your Telegram API ID
-- **API Hash**: Your Telegram API hash
-- **Session String**: Your encrypted session string
-- **Validation**: Save/Test performs real MTProto getMe verification.
-
-## 🎯 Comprehensive Operations Guide
-
-For detailed documentation of all operations with parameters, examples, and use cases, see our [Operations Guide](./docs/OPERATIONS_GUIDE.md).
-
-
-## 🔧 Available Operations
-
-| Resource              | Operations                                                                                                  |
-| --------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **Auth**              | Request Login Code, Resend Login Code, Sign in, Request QR Login, Complete QR Login                         |
-| **Message**           | Send Message, Get Chat History, Read Messages History, Edit, Delete, Pin, Forward, Copy, Edit Media, Create Poll, Copy Restricted Content, Clear History, Unpin Message |
-| **Chat**              | Get Chat Info, Get Chats List, Join Channel/Group, Leave Channel/Group, Create Group/Channel, Send Chat Action |
-| **User**              | Get My Profile, Get Profiles Photo, Update My Profile, Update My Username, Update My Status, Get User Profile (Bio & Common Chats) |
-| **Media**             | Download Media Files                                                                                        |
-| **Channel**           | Add Member, Remove Member, Ban User, Unban User, Promote to Admin, Get Members                              |
-
-## 🛡️ Security Features
-
-### **Session Encryption**
-
-All session strings are automatically encrypted using AES-256-GCM with:
-
-- 256-bit encryption keys derived from your API credentials
-- 128-bit initialization vectors with PBKDF2 key derivation
-- Authentication tags for integrity verification
-- Automatic encryption/decryption transparent to users
-- Secure storage prevents session exposure
-
-### **Input Validation**
-
-Comprehensive validation ensures data integrity and security:
-
-- API credentials validation (ID format, Hash length)
-- Phone number format validation (international format)
-- Session string validation and integrity checks
-- Operation-specific parameter validation
-- Real-time warnings for potential issues
-
-### **Enhanced Error Handling**
-
-The node handles common Telegram errors gracefully:
-
-- **FLOOD_WAIT**: Automatic retry with specified wait time
-- **AUTH_KEY_DUPLICATED**: Clear error message about session conflicts
-- **SESSION_REVOKED**: Guidance to re-authenticate
-- **USER_DEACTIVATED_BAN**: Account ban detection
-- **PEER_FLOOD**: Extended wait times for peer flooding
-- **NETWORK_TIMEOUT**: Exponential backoff retries (up to 5 attempts)
-- **CHAT_WRITE_FORBIDDEN**: Permission error handling
-- **USER_BANNED_IN_CHANNEL**: Channel ban detection
-- **AUTH_KEY_UNREGISTERED**: Session is invalid or expired and must be regenerated
-- **SESSION_EXPIRED**: Session expired and must be renewed
-- **USER_PRIVACY_RESTRICTED**: Action blocked by user privacy settings
-- **CHANNEL_PRIVATE**: Channel or group is private/inaccessible
-- **USERNAME_NOT_OCCUPIED / USERNAME_INVALID**: Username does not exist or has invalid format
-- **INVITE_HASH_INVALID / INVITE_HASH_EXPIRED**: Invite link is invalid or expired
-- **PEER_ID_INVALID / MESSAGE_ID_INVALID**: Chat/message identifiers are invalid
-
-## ⚡ Performance Optimizations
-
-### **Smart Client Management**
-
-- **Connection Pooling**: Reuses existing TelegramClient instances via Map cache
-- **Race Condition Prevention**: Connection locks prevent multiple simultaneous connections
-- **Health Monitoring**: Automatic connection validation and healing
-- **Auto-cleanup**: 30-minute stale connection detection and cleanup
-- **Reconnection Logic**: Automatic reconnection for failed connections
-- **Session Encryption**: Transparent AES-256-GCM session decryption
-
-### **Intelligent Rate Limiting**
-
-- Configurable request intervals (minimum 1-second)
-- Priority-based request queuing with queue length monitoring
-- DoS protection with maximum queue size limits (1000 requests)
-- Automatic cleanup of stale requests
-- Enhanced Telegram API limit compliance
-
-### **Smart Caching**
-
-In-memory caching for frequently accessed data:
-
-- User information caching (5-minute TTL)
-- Chat/channel metadata caching
-- Dialog lists caching
-- Automatic cache cleanup and size management
-- Configurable cache TTL and maximum size
-
-### **Memory Efficient Design**
-
-- Proper cleanup prevents memory leaks
-- Connection pooling and resource management
-- Background loop prevention
-- Optimized data structures and algorithms
-- Automatic resource cleanup
-
-### **Enhanced Request Handling**
-
-- **Binary File Upload**: Support for text-aware send flows plus photos, videos, documents, and other file types where applicable
-- **Media URL Support**: Direct URL upload with fallback to download-and-upload
-- **Progress Tracking**: Real-time download progress for large media files
-- **Error Recovery**: Automatic retry for network timeouts and connection issues
-
-## 🚨 Troubleshooting
-
-For comprehensive troubleshooting guidance, common issues, and solutions, see our [Troubleshooting Guide](./docs/TROUBLESHOOTING_GUIDE.md).
+---
 
 ## Project Structure
 
 ```
-n8n-nodes-telegram-grampro/
-├── 📄 Root Files
-│   ├── .gitignore, .prettierrc.js, eslint.config.mjs
-│   ├── LICENSE, README.md
-│   ├── package.json, package-lock.json
-│   └── tsconfig.json
-│
-├── 🐙 .github/
-│   ├── CODE_OF_CONDUCT.md, CONTRIBUTING.md, SECURITY.md
-│   └── workflows/
-│       ├── build.yml
-│       └── publish.yml
-│
-├── 🔐 credentials/
-│   ├── TelegramGramProApi.credentials.ts
-│   └── telegram-grampro-credentials.svg
-│
-├── 📚 docs/
-│   ├── AUTHORIZATION_GUIDE.md
-│   ├── CHANGE_LOG.md
-│   ├── OPERATIONS_GUIDE.md
-│   └── TROUBLESHOOTING_GUIDE.md
-│
-└── ⚡ nodes/
-    ├── 📦 TelegramGramPro/
-    │   ├── TelegramGramPro.node.ts
-    │   ├── telegram-grampro.svg
-    │   ├── core/
-    │   │   ├── cache.ts, clientManager.ts, fileSizeUtils.ts, 
-    │   │   ├── floodWaitHandler.ts, logger.ts,  
-    │   │   ├── messageFormatting.ts, operationHelpers.ts,
-    │   │   ├── payloadBuilders.ts, qrPng.ts, 
-    │   │   ├── rateLimiter.ts, sessionEncryption.ts,
-    │   │   └── telegramErrorMapper.ts, types.ts, validation.ts
-    │   │
-    │   └── resources/
-    │       ├── authentication.operations.ts
-    │       ├── channel.operations.ts
-    │       ├── chat.operations.ts
-    │       ├── media.operations.ts
-    │       ├── message.operations.ts
-    │       └── user.operations.ts
-    │
-    └── 🔔 TelegramGramProTrigger/
-        ├── TelegramGramProTrigger.node.ts
-        ├── trigger.shared.ts
-        └── telegram-grampro.svg
+n8n-nodes-telegram-grampro-extended/
+├── package.json
+├── tsconfig.json
+├── nodes/
+│   ├── TelegramGramPro/
+│   │   ├── TelegramGramPro.node.ts
+│   │   ├── core/
+│   │   │   ├── operationHelpers.ts        # chunk() for batch splitting
+│   │   │   ├── types.ts                   # HistoryStatsFields + existing types
+│   │   │   └── ...
+│   │   └── resources/
+│   │       ├── message.operations.ts      # getHistory with includeStats logic
+│   │       └── ...
+│   └── TelegramGramProTrigger/
+└── credentials/
 ```
-
-## Workflow Examples
-
-Ready-to-import workflow examples are available in [`docs/Workflows-Examples`](./docs/Workflows-Examples):
-
-- [`Send messages from one user to multiple users.json`](./docs/Workflows-Examples/Send%20messages%20from%20one%20user%20to%20multiple%20users.json)
-- [`Send messages from folder chats to user.json`](./docs/Workflows-Examples/Send%20messages%20from%20folder%20chats%20to%20user.json)
-
-### How to Import in n8n
-
-1. Open n8n and create a new workflow.
-2. Use the workflow menu and select **Import from File**.
-3. Choose one of the JSON files from `docs/Workflows-Examples/`.
-4. Re-map `telegramGramProApi` credentials to your own Telegram GramPro credential.
-5. Replace placeholders such as source/target chats, admin usernames, and sub-workflow IDs.
-
-## Advanced Configuration
-
-### **Environment Variables**
-
-- `GRAMPRO_LOG_LEVEL=error|warn|info|debug` - Control log verbosity
-- `N8N_LOG_LEVEL=error|warn|info|debug` - Fallback if GRAMPRO_LOG_LEVEL not set
-
-### **Performance Tuning**
-
-- **Rate Limiting**: Adjust intervals based on your usage patterns
-- **Cache Size**: Configure maximum cache entries for your memory constraints
-- **Connection Timeout**: Set appropriate timeouts for your network conditions
-- **Retry Attempts**: Configure retry logic for your reliability requirements
-
-### **Security Best Practices**
-
-- Always use encrypted session strings
-- Keep API credentials secure and never expose them in workflow outputs
-- Enable 2FA for your Telegram account
-- Regularly rotate session strings
-- Monitor logs for security events
-
-## 👥 Contributors
-
-<div align="center">
-
-<a href="https://github.com/sadiakant">
-  <img src="https://github.com/sadiakant.png" width="125" height="125" style="border-radius: 50%;" alt="sadiakant">
-</a>
-
-**Krushnakant Sadiya** 
-<br>
- Project Lead & Developer
-<br>
-
-<a href="https://github.com/sadiakant/n8n-nodes-telegram-grampro/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=sadiakant/n8n-nodes-telegram-grampro" />
-</a>
-
-We welcome contributions to make Telegram GramPro even better! For comprehensive contributions guidance, see our [Contributions Guide](./docs/CONTRIBUTING.md).
-
-</div>
-
-## ⭐ Star History
-
-<a href="https://www.star-history.com/?repos=sadiakant%2Fn8n-nodes-telegram-grampro&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=sadiakant/n8n-nodes-telegram-grampro&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=sadiakant/n8n-nodes-telegram-grampro&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=sadiakant/n8n-nodes-telegram-grampro&type=date&legend=top-left" />
- </picture>
-</a>
-
-## **Publishing Status**
-
-[![Build Status](https://github.com/sadiakant/n8n-nodes-telegram-grampro/actions/workflows/build.yml/badge.svg)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/actions/workflows/build.yml)
-[![Publish Status](https://github.com/sadiakant/n8n-nodes-telegram-grampro/actions/workflows/publish.yml/badge.svg)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/actions/workflows/publish.yml)
-[![Socket Badge](https://badge.socket.dev/npm/package/n8n-nodes-telegram-grampro)](https://badge.socket.dev/npm/package/n8n-nodes-telegram-grampro)
-[![GitHub Issues](https://img.shields.io/github/issues/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/issues)
-[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/pulls)
-
-## **NPM Status**
-
-[![npm version](https://badgen.net/npm/v/n8n-nodes-telegram-grampro)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![npm downloads/week](https://img.shields.io/npm/dw/n8n-nodes-telegram-grampro?logo=npm&logoColor=white)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![npm downloads/month](https://img.shields.io/npm/dm/n8n-nodes-telegram-grampro?logo=npm&logoColor=white)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![npm downloads/year](https://img.shields.io/npm/dy/n8n-nodes-telegram-grampro?logo=npm&logoColor=white)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![node version](https://badgen.net/npm/node/n8n-nodes-telegram-grampro)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![npm license](https://badgen.net/npm/license/n8n-nodes-telegram-grampro)](LICENSE)
-[![GitHub license](https://badgen.net/github/license/sadiakant/n8n-nodes-telegram-grampro)](LICENSE)
-[![npm total downloads](https://img.shields.io/npm/dt/n8n-nodes-telegram-grampro?logo=npm&logoColor=white)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![npm unpacked size](https://img.shields.io/npm/unpacked-size/n8n-nodes-telegram-grampro)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![npm types](https://img.shields.io/npm/types/n8n-nodes-telegram-grampro)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-[![npm collaborators](https://img.shields.io/npm/collaborators/n8n-nodes-telegram-grampro)](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
-
-## **GitHub Status**
-
-[![github release](https://badgen.net/github/release/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/releases)
-[![github stars](https://badgen.net/github/stars/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/stargazers)
-[![github forks](https://badgen.net/github/forks/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/network/members)
-[![last commit](https://badgen.net/github/last-commit/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/commits/main)
-[![GitHub contributors](https://img.shields.io/github/contributors/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/graphs/contributors)
-[![GitHub watchers](https://img.shields.io/github/watchers/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/watchers)
-[![GitHub issues closed](https://img.shields.io/github/issues-closed/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/issues)
-[![GitHub PRs closed](https://img.shields.io/github/issues-pr-closed/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/pulls)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/sadiakant/n8n-nodes-telegram-grampro)](https://github.com/sadiakant/n8n-nodes-telegram-grampro/commits/main)
-
-## **Dependency Status**
-
-[![Telegram API](https://badgen.net/static/Telegram/API/229ED9)](https://core.telegram.org/api)
-[![TypeScript](https://badgen.net/static/TypeScript/5.x/3178C6)](https://www.typescriptlang.org/)
-[![n8n](https://badgen.net/static/n8n/Community%20Node/EA4B71)](https://n8n.io/)
-[![pnpm >= 9.1](https://img.shields.io/badge/pnpm-%3E%3D9.1-F69220?style=flat-square&logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Node >= 18.17](https://img.shields.io/badge/node-%3E%3D18.17-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![teleproto dependency](https://img.shields.io/badge/teleproto-%5E1.224.1-2CA5E0?logo=telegram&logoColor=white)](https://www.npmjs.com/package/teleproto)
-[![n8n-workflow peer dependency](https://img.shields.io/npm/dependency-version/n8n-nodes-telegram-grampro/peer/n8n-workflow)](https://www.npmjs.com/package/n8n-workflow)
-
-## 📄 License
-
-[MIT License](./LICENSE) - see LICENSE file for details.
-
-## 🔗 Resources
-
-- [Telegram API Documentation](https://core.telegram.org/api)
-- [Teleproto GitHub](https://github.com/teleproto/teleproto)
-- [n8n Custom Nodes Guide](https://docs.n8n.io/integrations/creating-nodes/)
-- [Telegram GramPro GitHub](https://github.com/sadiakant/n8n-nodes-telegram-grampro)
-- [NPM Package](https://www.npmjs.com/package/n8n-nodes-telegram-grampro)
 
 ---
 
-<center><b>Built with ❤️ for n8n automation workflows</b></center>
+## 🔗 Resources
+
+- **Fork repository:** [RedFOX001/n8n-nodes-telegram-grampro-extended](https://github.com/RedFOX001/n8n-nodes-telegram-grampro-extended)
+- **Upstream:** [sadiakant/n8n-nodes-telegram-grampro](https://github.com/sadiakant/n8n-nodes-telegram-grampro)
+- **NPM:** `n8n-nodes-telegram-grampro-extended`
+- [Operations Guide](./docs/OPERATIONS_GUIDE.md)
+- [Authorization Guide](./docs/AUTHORIZATION_GUIDE.md)
+- [Troubleshooting Guide](./docs/TROUBLESHOOTING_GUIDE.md)
+- [Change Log](./docs/CHANGE_LOG.md)
+
+## 📄 License
+
+[MIT License](./LICENSE) — see LICENSE file for details.
+
+---
+
+*Built on top of [Telegram GramPro](https://github.com/sadiakant/n8n-nodes-telegram-grampro) by Krushnakant Sadiya, with ❤️ for n8n automation workflows*

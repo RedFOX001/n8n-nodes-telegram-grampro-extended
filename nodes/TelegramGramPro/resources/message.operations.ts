@@ -16,7 +16,13 @@ import { pipeline } from 'stream/promises';
 import { logger } from '../core/logger';
 import { prepareTelegramTextInput, renderTelegramEntities } from '../core/messageFormatting';
 import { asNodeOperationError, createNodeOperationError } from '../core/nodeOperationError';
-import type { TelegramClientInstance, TelegramCredentials, TelegramEntity } from '../core/types';
+import type {
+    TelegramClientInstance,
+    TelegramCredentials,
+    TelegramEntity,
+    HistoryStatsFields,
+} from '../core/types';
+import { chunk } from '../core/operationHelpers';
 import {
 	buildSharedAlbumPayload,
 	buildSharedMessagePayload,
@@ -1839,13 +1845,17 @@ async function getHistory(
 
 	const items = [];
 	const chatEntity = (await getEntityLoose(client, chatIdInput)) as TelegramEntity;
-
+	const resolvedPeer = await resolvePeer(client, chatIdInput);
+	const includeStats = this.getNodeParameter('includeStats', i, false) as boolean;
+	const includeReactions = this.getNodeParameter('includeReactions', i, true) as boolean;
+	const statsByMessageId = new Map<number, HistoryStatsFields>();
+	
 	// Group messages by groupedId to support albums in history
 	const groups = new Map<string, TelegramMessageView[]>();
 	const orderedGroups: Array<{ type: 'single' | 'album'; messages: TelegramMessageView[] }> = [];
 
 	for (const m of messages) {
-		if (!m || m._ === 'MessageEmpty') continue;
+		if (!m || m._ === 'MessageEmpty' || (m as unknown as { className?: string }).className === 'MessageEmpty') continue;
 
 		const gid = m.groupedId?.toString();
 		if (gid) {
@@ -1879,7 +1889,10 @@ async function getHistory(
 			logger.warn('Failed to batch fetch sender entities for history: ' + (err as Error).message);
 		}
 	}
-
+	if (includeStats && orderedGroups.length > 0) {
+		const primaryIds = orderedGroups.map((group) => group.messages[0].id);
+		await enrichHistoryStats(client, resolvedPeer, chatEntity, primaryIds, includeReactions, statsByMessageId);
+	}
 	for (const group of orderedGroups) {
 		const primaryMessage = group.messages[0];
 		const messageObj = primaryMessage as unknown as Api.Message;
@@ -1911,6 +1924,7 @@ async function getHistory(
 			json: {
 				...payload,
 				humanDate: formatDateWithTime(new Date(primaryMessage.date * 1000)),
+				...(includeStats ? statsByMessageId.get(primaryMessage.id) : {}),
 			},
 			pairedItem: { item: i },
 		});
@@ -2770,4 +2784,187 @@ async function handleText(
 		message: text,
 		formattingEntities: message.entities || [],
 	});
+}
+
+/**
+ * Batch-first stats enrichment for getHistory (Release 1 scope).
+ * Up to 2 extra MTProto calls per page (views + optional full-message reactions),
+ * both chunked by 100 IDs. Never throws — degrades to null/[] per affected chunk
+ * so a stats failure never breaks the base getHistory response.
+ *
+ * @param peer      — pre-resolved InputPeer from getHistory (avoids re-resolving)
+ * @param chatEntity — entity object used to detect channel vs. chat for reactions API
+ */
+export async function enrichHistoryStats(
+	client: TelegramClientInstance,
+	peer: unknown,
+	chatEntity: TelegramEntity,
+	messageIds: number[],
+	includeReactions: boolean,
+	statsByMessageId: Map<number, HistoryStatsFields>,
+): Promise<void> {
+	if (messageIds.length === 0) return;
+
+	const isChannel = chatEntity?.className === 'Channel' || (chatEntity as unknown as { _?: string })._ === 'channel';
+	const idChunks = chunk(messageIds, 100);
+
+	for (const idChunk of idChunks) {
+		// ── Batch 1: messages.getMessagesViews ──────────────────────
+		let viewsResult: Api.messages.MessageViews | undefined;
+		try {
+			viewsResult = (await withRateLimit(() =>
+				safeExecute(() =>
+					client.invoke(
+						new Api.messages.GetMessagesViews({
+							peer: peer as never,
+							id: idChunk,
+							increment: false,
+						}),
+					),
+				),
+			)) as unknown as Api.messages.MessageViews;
+		} catch (error) {
+			logger.warn(
+				'getHistory includeStats: getMessagesViews failed for chunk, defaulting to nulls: ' +
+					(error as Error).message,
+			);
+		}
+
+		// Defensive: guard against length mismatch (F4)
+		if (!viewsResult?.views || viewsResult.views.length !== idChunk.length) {
+			logger.warn(
+				'getHistory includeStats: getMessagesViews returned length mismatch ' +
+					`(got ${viewsResult?.views?.length ?? 0}, expected ${idChunk.length}), defaulting chunk to nulls`,
+			);
+			idChunk.forEach((msgId) => {
+				statsByMessageId.set(msgId, {
+					views: null,
+					forwards: null,
+					repliesCount: null,
+					hasComments: false,
+				});
+			});
+		} else {
+			idChunk.forEach((msgId, index) => {
+				const view = viewsResult!.views![index];
+				statsByMessageId.set(msgId, {
+					views: view?.views ?? null,
+					forwards: view?.forwards ?? null,
+					repliesCount: view?.replies?.replies ?? null,
+					hasComments: !!view?.replies?.comments,
+				});
+			});
+		}
+
+		// ── Batch 2: reactions (via direct API calls per spec) ──────
+		if (includeReactions) {
+			try {
+				let fullMessages: Array<Record<string, unknown>>;
+				if (isChannel) {
+					const inputChannel = toInputChannel(peer) ?? toInputChannel(chatEntity);
+					if (!inputChannel) {
+						logger.warn(
+							'getHistory includeStats: cannot build InputChannel for channel reactions, ' +
+								'defaulting chunk to empty reactions',
+						);
+						idChunk.forEach((msgId) => {
+							const ex = statsByMessageId.get(msgId);
+							if (ex) {
+								if (ex.reactions === undefined) {
+									ex.reactions = [];
+									statsByMessageId.set(msgId, ex);
+								}
+							} else {
+								statsByMessageId.set(msgId, {
+									views: null,
+									forwards: null,
+									repliesCount: null,
+									hasComments: false,
+									reactions: [],
+								});
+							}
+						});
+						continue;
+					}
+					const chResult = await withRateLimit(() =>
+						safeExecute(() =>
+							client.invoke(
+								new Api.channels.GetMessages({
+									channel: inputChannel,
+									id: idChunk.map((mid) => new Api.InputMessageID({ id: mid })),
+								}),
+							),
+						),
+					);
+					fullMessages = ((chResult as unknown as { messages?: Array<Record<string, unknown>> }).messages ?? []);
+				} else {
+					const msgResult = await withRateLimit(() =>
+						safeExecute(() =>
+							client.invoke(
+								new Api.messages.GetMessages({
+									id: idChunk.map((mid) => new Api.InputMessageID({ id: mid })),
+								}),
+							),
+						),
+					);
+					fullMessages = ((msgResult as unknown as { messages?: Array<Record<string, unknown>> }).messages ?? []);
+				}
+
+				for (const rawMsg of fullMessages) {
+					// Unified MessageEmpty check: both className and _ (F3)
+					if (
+						!rawMsg ||
+						(rawMsg as { className?: string }).className === 'MessageEmpty' ||
+						(rawMsg as { _?: string })._ === 'MessageEmpty'
+					) {
+						continue;
+					}
+					const msgId = rawMsg.id as number;
+					const existing = statsByMessageId.get(msgId) ?? {
+						views: null,
+						forwards: null,
+						repliesCount: null,
+						hasComments: false,
+					};
+					const reactionResults = (
+						rawMsg as unknown as {
+							reactions?: {
+								results?: Array<{ reaction?: { emoticon?: string }; count?: number }>;
+							};
+						}
+					).reactions?.results;
+					existing.reactions = Array.isArray(reactionResults)
+						? reactionResults.map((r) => ({
+								emoji: r.reaction?.emoticon ?? '',
+								count: r.count ?? 0,
+							}))
+						: [];
+					statsByMessageId.set(msgId, existing);
+				}
+			} catch (error) {
+				logger.warn(
+					'getHistory includeStats: reactions fetch failed for chunk, defaulting to empty: ' +
+						(error as Error).message,
+				);
+				idChunk.forEach((msgId) => {
+					const existing = statsByMessageId.get(msgId);
+					if (existing) {
+						if (existing.reactions === undefined) {
+							existing.reactions = [];
+						}
+						// Always write back to be safe (S2)
+						statsByMessageId.set(msgId, existing);
+					} else {
+						statsByMessageId.set(msgId, {
+							views: null,
+							forwards: null,
+							repliesCount: null,
+							hasComments: false,
+							reactions: [],
+						});
+					}
+				});
+			}
+		}
+	}
 }
